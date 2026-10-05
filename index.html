@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-ITMS &mdash; AI Industrial Training Management System</title>
+
+<!--
+  ============================================================================
+  AI-ITMS — AI-Based Industrial Training Online Management System
+  FRONTEND PROTOTYPE — single-file, framework-free (HTML5 / CSS3 / vanilla JS)
+  ============================================================================
+
+  INTEGRATION MAP FOR BACKEND WORK (read this before wiring anything up):
+
+  1. PHP API ENDPOINTS
+     Every "backend action" in this prototype is a JS function inside the
+     `API` object (search for `const API = {`). Each method currently
+     resolves dummy data after a fake delay via `mockRequest()`. Replace the
+     body of each method with a `fetch()` call to the matching endpoint,
+     e.g. API.loginUser() -> POST /api/login.php, API.submitWeeklyReport()
+     -> POST /api/reports/create.php. Keep the same method names/signatures
+     so the UI code above never has to change.
+
+  2. MYSQL DATA
+     All dummy records live in the `DB` object near the top of the <script>
+     (students, supervisors, organizations, placements, weeklyReports,
+     attendance, notifications, pendingPlacements...). These mirror the
+     suggested MySQL tables: users, students, supervisors, departments,
+     programmes, organizations, organization_roles, training_sessions,
+     applications, placements, weekly_reports, report_feedback,
+     attendance, supervisor_evaluations, ai_placement_recommendations,
+     ai_report_analyses, ai_final_evaluations, notifications. Swap `DB`
+     for API responses once endpoints exist.
+
+  3. AUTHENTICATION
+     `handleLogin()` and the demo-login buttons currently just set
+     `state.currentUser` from `DB.users`. Replace with a real session/JWT
+     check against /api/login.php and /api/session.php, and gate portal
+     screens on a verified role claim rather than a client-side flag.
+
+  4. AI / LLM API (OpenAI or similar)
+     Three flows are built to be swapped for real model calls:
+       - getAIPlacementRecommendation() — feed student profile + org list
+         to your LLM, return organization match + reasoning + scores.
+       - analyzeWeeklyReport() — feed report text to your LLM for
+         relevance/quality/flags.
+       - generateAIFinalEvaluation() — feed the full 10-week history to
+         your LLM for the final scored evaluation + narrative.
+     The loading copy, score shapes and card layouts are already built to
+     accept whatever JSON your prompt returns — just map fields.
+
+  5. FILE UPLOADS
+     The "Optional attachment" control in the weekly report form
+     (#reportAttachment) is a plain <input type="file"> with no upload
+     wired up. POST it to /api/reports/upload.php (multipart/form-data)
+     and store the returned file path against the report row.
+
+  6. NOTIFICATIONS
+     `pushNotification()` and the notification bell dropdowns render from
+     `DB.notifications`. Replace with a real notifications table read (and
+     ideally a websocket/poll for live updates) driven by the events noted
+     inline: placement approved, report approved/rejected, AI analysis
+     done, new submission, student flagged, etc.
+  ============================================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<link rel="stylesheet" href="./assets/css/style.css">
+<script src="./assets/js/app.js"></script>
+
+
+
+</head>
+<body>
+<div id="toastStack" class="toast-stack"></div>
+<div id="modalRoot"></div>
+
+<!-- =====================================================================
+     AUTH / LOGIN SCREEN
+     ===================================================================== -->
+<div id="screen-auth" class="screen auth-shell">
+  <div class="auth-visual">
+    <div style="position:relative;z-index:2;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="logo-mark" style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--ai-2),var(--ai-1));display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;">T</div>
+        <div>
+          <div style="font-family:var(--font-display);font-weight:700;font-size:18px;">AI-ITMS</div>
+          <div style="font-size:10.5px;color:#93A3BE;text-transform:uppercase;letter-spacing:.08em;">Industrial Training, AI-Managed</div>
+        </div>
+      </div>
+      <h1 style="font-size:32px;line-height:1.25;margin:34px 0 12px;max-width:460px;">Every student, matched, tracked and evaluated &mdash; automatically.</h1>
+      <p style="color:#B7C4DA;font-size:14.5px;max-width:420px;line-height:1.6;">AI-ITMS places students with the right organisation, reads every weekly logbook, and writes the final performance report &mdash; so supervisors can focus on the training itself.</p>
+    </div>
+    <div class="auth-flow">
+      <div class="flow-node"><div class="fn-dot">1</div><span>Student profile &rarr; AI placement match</span></div>
+      <div class="flow-node"><div class="fn-dot">2</div><span>Weekly logbook &rarr; supervisor review &rarr; AI analysis</span></div>
+      <div class="flow-node"><div class="fn-dot">3</div><span>Week 10 &rarr; AI final performance evaluation</span></div>
+    </div>
+  </div>
+
+  <div class="auth-panel">
+    <div class="auth-card">
+      <div id="authStepRole">
+        <h2 style="margin:0 0 4px;">Welcome to AI-ITMS</h2>
+        <p style="color:var(--ink-soft);font-size:13.5px;margin:0 0 6px;">Choose how you'd like to sign in.</p>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+          <div class="field">
+            <label>Email address</label>
+            <input class="input" type="email" id="loginEmail" placeholder="you@example.edu.ng" value="daniel.okafor@futa.edu.ng" required>
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input class="input" type="password" id="loginPassword" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" value="password123" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block" id="loginSubmitBtn">
+            <span class="btn-label">Sign in</span>
+          </button>
+        </form>
+
+        <p style="text-align:center;font-size:12.5px;color:var(--ink-soft);margin-top:20px;">New student? <a href="#" onclick="openRegisterModal();return false;" style="color:var(--primary);font-weight:600;">Create an account</a></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- =====================================================================
+     STUDENT PORTAL
+     ===================================================================== -->
+<div id="screen-student" class="screen portal hidden">
+  <div class="sidebar-overlay" id="studentOverlay" onclick="toggleSidebar('student',false)"></div>
+  <aside class="sidebar" id="studentSidebar">
+    <div class="sidebar-brand">
+      <div class="logo-mark">T</div>
+      <div><div class="brand-text">AI-ITMS</div><div class="brand-sub">Student Portal</div></div>
+    </div>
+    <div class="sidebar-role"><i data-lucide="graduation-cap" style="width:14px;height:14px;"></i> Signed in as Student</div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-sec="dashboard" onclick="studentNav('dashboard')"><i data-lucide="layout-grid"></i>Dashboard</button>
+      <button class="nav-item" data-sec="profile" onclick="studentNav('profile')"><i data-lucide="user-round"></i>My Profile</button>
+      <div class="nav-section-label">Placement</div>
+      <button class="nav-item" data-sec="apply" onclick="studentNav('apply')"><i data-lucide="file-edit"></i>Apply for IT</button>
+      <button class="nav-item" data-sec="recommendation" onclick="studentNav('recommendation')"><i data-lucide="sparkles"></i>AI Recommendation</button>
+      <button class="nav-item" data-sec="placement" onclick="studentNav('placement')"><i data-lucide="building-2"></i>My Placement</button>
+      <div class="nav-section-label">Training</div>
+      <button class="nav-item" data-sec="logbook" onclick="studentNav('logbook')"><i data-lucide="book-open-check"></i>Training Logbook</button>
+      <button class="nav-item" data-sec="reports" onclick="studentNav('reports')"><i data-lucide="clipboard-list"></i>Weekly Reports</button>
+      <button class="nav-item" data-sec="supervisor" onclick="studentNav('supervisor')"><i data-lucide="user-check"></i>Supervisor</button>
+      <div class="nav-section-label">Insight</div>
+      <button class="nav-item" data-sec="ai-insights" onclick="studentNav('ai-insights')"><i data-lucide="brain-circuit"></i>AI Insights</button>
+      <button class="nav-item" data-sec="evaluation" onclick="studentNav('evaluation')"><i data-lucide="award"></i>Final Evaluation</button>
+      <div class="nav-section-label">Account</div>
+      <button class="nav-item" data-sec="notifications" onclick="studentNav('notifications')"><i data-lucide="bell"></i>Notifications<span class="nav-dot" id="studentNotifDot"></span></button>
+      <button class="nav-item" data-sec="settings" onclick="studentNav('settings')"><i data-lucide="settings"></i>Settings</button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-item" onclick="logout()"><i data-lucide="log-out"></i>Logout</button>
+    </div>
+  </aside>
+
+  <div class="main">
+<header class="topbar">
+
+  <div class="topbar-left">
+
+    <button
+      class="icon-btn menu-toggle"
+      onclick="toggleSidebar('student',true)"
+    >
+      <i data-lucide="menu"></i>
+    </button>
+
+    <div>
+
+      <div class="breadcrumb">
+        <span id="studentBreadcrumb">
+          Student Portal
+        </span>
+      </div>
+
+      <div
+        class="topbar-title"
+        id="studentTitle"
+      >
+        Dashboard
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div class="topbar-right">
+
+    <button
+      class="icon-btn"
+      onclick="toggleTheme()"
+      title="Toggle theme"
+    >
+      <i
+        data-lucide="moon"
+        id="themeIconStudent"
+      ></i>
+    </button>
+
+
+    <button
+      class="icon-btn"
+      onclick="openNotifPanel('student')"
+      title="Notifications"
+    >
+      <i data-lucide="bell"></i>
+      <span
+        class="dot"
+        id="studentTopbarNotifDot"
+      ></span>
+    </button>
+
+
+    <div
+      class="user-chip"
+      onclick="studentNav('profile')"
+    >
+
+      <div
+        class="avatar"
+        id="studentTopbarAvatar"
+      >
+        ST
+      </div>
+
+      <div>
+
+        <div
+          class="u-name"
+          id="studentTopbarName"
+        >
+          Student
+        </div>
+
+        <div
+          class="u-role"
+          id="studentTopbarRole"
+        >
+          Student
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</header>
+    <div class="content" id="studentContent"></div>
+  </div>
+</div>
+
+<!-- =====================================================================
+     SUPERVISOR PORTAL
+     ===================================================================== -->
+<div id="screen-supervisor" class="screen portal hidden">
+  <div class="sidebar-overlay" id="supervisorOverlay" onclick="toggleSidebar('supervisor',false)"></div>
+  <aside class="sidebar" id="supervisorSidebar">
+    <div class="sidebar-brand">
+      <div class="logo-mark">T</div>
+      <div><div class="brand-text">AI-ITMS</div><div class="brand-sub">Supervisor Portal</div></div>
+    </div>
+    <div class="sidebar-role"><i data-lucide="user-check" style="width:14px;height:14px;"></i> Signed in as Supervisor</div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-sec="dashboard" onclick="supervisorNav('dashboard')"><i data-lucide="layout-grid"></i>Dashboard</button>
+      <button class="nav-item" data-sec="placements" onclick="supervisorNav('placements')"><i data-lucide="shuffle"></i>Placement Approvals</button>
+      <button class="nav-item" data-sec="students" onclick="supervisorNav('students')"><i data-lucide="users"></i>My Students</button>
+      <button class="nav-item" data-sec="reports" onclick="supervisorNav('reports')"><i data-lucide="clipboard-check"></i>Weekly Reports</button>
+      <button class="nav-item" data-sec="evaluations" onclick="supervisorNav('evaluations')"><i data-lucide="award"></i>Evaluations</button>
+      <button class="nav-item" data-sec="ai-insights" onclick="supervisorNav('ai-insights')"><i data-lucide="brain-circuit"></i>AI Insights</button>
+      <div class="nav-section-label">Account</div>
+      <button class="nav-item" data-sec="notifications" onclick="supervisorNav('notifications')"><i data-lucide="bell"></i>Notifications<span class="nav-dot"></span></button>
+      <button class="nav-item" data-sec="profile" onclick="supervisorNav('profile')"><i data-lucide="user-round"></i>Profile</button>
+      <button class="nav-item" data-sec="settings" onclick="supervisorNav('settings')"><i data-lucide="settings"></i>Settings</button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-item" onclick="logout()"><i data-lucide="log-out"></i>Logout</button>
+    </div>
+  </aside>
+  <div class="main">
+<header class="topbar">
+
+  <div class="topbar-left">
+
+    <button
+      class="icon-btn menu-toggle"
+      onclick="toggleSidebar('supervisor',true)"
+    >
+      <i data-lucide="menu"></i>
+    </button>
+
+    <div>
+
+      <div class="breadcrumb">
+        <span id="supervisorBreadcrumb">
+          Supervisor Portal
+        </span>
+      </div>
+
+      <div
+        class="topbar-title"
+        id="supervisorTitle"
+      >
+        Dashboard
+      </div>
+
+    </div>
+
+  </div>
+
+
+  <div class="topbar-right">
+
+    <button
+      class="icon-btn"
+      onclick="toggleTheme()"
+      title="Toggle theme"
+    >
+      <i
+        data-lucide="moon"
+        id="themeIconSupervisor"
+      ></i>
+    </button>
+
+
+    <button
+      class="icon-btn"
+      onclick="openNotifPanel('supervisor')"
+      title="Notifications"
+    >
+      <i data-lucide="bell"></i>
+
+      <span
+        class="dot"
+        id="supervisorTopbarNotifDot"
+      ></span>
+
+    </button>
+
+
+    <div
+      class="user-chip"
+      onclick="supervisorNav('profile')"
+    >
+
+      <div
+        class="avatar"
+        id="supervisorTopbarAvatar"
+      >
+        SV
+      </div>
+
+      <div>
+
+        <div
+          class="u-name"
+          id="supervisorTopbarName"
+        >
+          Supervisor
+        </div>
+
+        <div
+          class="u-role"
+          id="supervisorTopbarRole"
+        >
+          Supervisor
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</header>
+    <div class="content" id="supervisorContent"></div>
+  </div>
+</div>
+
+
+
+
+</body>
+</html>
