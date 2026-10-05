@@ -2,7 +2,7 @@
    REAL API LAYER
    ===================================================================== */
 
-const API_BASE = "/aioims/api";
+const API_BASE = "api";
 
 async function apiRequest(endpoint, method = "GET", data = null) {
 
