@@ -1,0 +1,13 @@
+FROM dunglas/frankenphp:php8.3
+
+WORKDIR /app
+
+RUN docker-php-ext-install pdo_mysql
+
+COPY . /app
+
+RUN chown -R www-data:www-data /app
+
+ENV SERVER_NAME=:80
+
+CMD ["frankenphp", "php-server", "--root", "/app", "--listen", "0.0.0.0:80"]
